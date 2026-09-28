@@ -1,0 +1,8 @@
+{
+  "name": "FindBack AI",
+  "description": "Smart Lost & Found Assistant for colleges, universities, and communities to intelligently match lost and found items using AI.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
