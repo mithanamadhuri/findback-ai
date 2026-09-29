@@ -341,6 +341,118 @@ app.post('/api/analyze-item', async (req, res) => {
   }
 });
 
+// API: Proxy for n8n AI Chatbot Agent
+const DEFAULT_N8N_WEBHOOK = 'https://madhuri-reddy06.app.n8n.cloud/webhook/05e8976c-9bca-42e2-aa54-6fc33a795eb9/chat';
+const TEST_N8N_WEBHOOK = 'https://madhuri-reddy06.app.n8n.cloud/webhook-test/05e8976c-9bca-42e2-aa54-6fc33a795eb9/chat';
+
+app.post('/api/n8n-chat', async (req, res) => {
+  try {
+    const { message, sessionId, webhookUrl } = req.body;
+    if (!message || typeof message !== 'string') {
+      return res.status(400).json({ error: 'Message is required' });
+    }
+
+    const targetWebhook = webhookUrl || DEFAULT_N8N_WEBHOOK;
+    const sid = sessionId || `findback-session-${Date.now()}`;
+
+    // Payload formatted for standard n8n chat triggers & webhook nodes
+    const payload = {
+      chatInput: message,
+      message: message,
+      sessionId: sid,
+      timestamp: new Date().toISOString()
+    };
+
+    // 1. First, attempt to call the user's n8n webhook
+    let n8nSuccess = false;
+    let n8nOutput: string | null = null;
+
+    try {
+      const n8nResponse = await fetch(targetWebhook, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json, text/plain, */*'
+        },
+        body: JSON.stringify(payload)
+      });
+
+      if (n8nResponse.ok) {
+        const contentType = n8nResponse.headers.get('content-type') || '';
+        if (contentType.includes('application/json')) {
+          const data = await n8nResponse.json();
+          n8nOutput =
+            data?.output ||
+            data?.text ||
+            data?.message ||
+            data?.response ||
+            (Array.isArray(data) ? (data[0]?.output || data[0]?.text || JSON.stringify(data[0])) : JSON.stringify(data));
+        } else {
+          n8nOutput = await n8nResponse.text();
+        }
+
+        if (n8nOutput && typeof n8nOutput === 'string' && n8nOutput.trim().length > 0) {
+          n8nSuccess = true;
+          return res.json({
+            output: n8nOutput,
+            sessionId: sid,
+            source: 'n8n'
+          });
+        }
+      }
+    } catch (n8nErr: any) {
+      console.warn('n8n webhook network attempt failed, using built-in agent:', n8nErr?.message);
+    }
+
+    // 2. If n8n is inactive or returned 404, seamlessly answer using Gemini AI
+    const ai = getGeminiClient();
+    if (ai) {
+      try {
+        const prompt = `You are the FindBack AI Assistant, the intelligent lost-and-found agent for university campuses and community facilities.
+A user on the FindBack AI website sent this message:
+"${message}"
+
+Your knowledge and guidelines:
+- Role: Friendly, campus-aware lost & found assistant.
+- Reporting: Users can click "Report Lost Item" or "Report Found Item" in the navigation bar to submit an item.
+- Matching: FindBack AI uses multimodal AI to compare categories, colors, locations, times, and descriptions without sharing private contact info publicly.
+- Safe Verification: FindBack uses private verification prompts (e.g. asking for lock screen wallpaper, specific stickers, keychain attachments, or case engravings) so finders and owners can safely confirm ownership before handover.
+- Key Campus Desks:
+  • Main Library 1st Floor Circulation Desk (books, electronics, chargers)
+  • Campus Recreation Center Equipment Desk (bottles, gym gear, sportswear)
+  • Student Union Information Desk (keys, backpacks, umbrellas)
+  • Campus Safety & Police Substation Room 105 (official ID cards, wallets, jewelry)
+- Tone: Helpful, reassuring, clear, and concise. Use bullet points where appropriate. Do NOT mention internal webhook status or say you are a fallback; simply answer the user directly and helpfully as their assistant.`;
+
+        const response = await ai.models.generateContent({
+          model: 'gemini-3.1-flash-lite',
+          contents: prompt
+        });
+
+        if (response && response.text) {
+          return res.json({
+            output: response.text.trim(),
+            sessionId: sid,
+            source: 'gemini-assistant'
+          });
+        }
+      } catch (aiErr: any) {
+        console.warn('Gemini chat generation failed:', aiErr?.message);
+      }
+    }
+
+    // 3. Graceful heuristic response if both are unavailable
+    return res.json({
+      output: `I'm here to help you with campus lost and found! You can report a lost or found item using the buttons in the top menu, browse active matches in the Dashboard, or check in at the Main Library Circulation Desk or Student Union Help Desk for items turned in today.`,
+      sessionId: sid,
+      source: 'local-assistant'
+    });
+  } catch (err: any) {
+    console.error('n8n proxy error:', err);
+    return res.status(500).json({ error: 'Failed to process message', details: err.message });
+  }
+});
+
 // Dev vs Prod Vite setup
 async function startServer() {
   const isProd = process.env.NODE_ENV === 'production';

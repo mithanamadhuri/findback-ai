@@ -16,6 +16,7 @@ import { DashboardView } from './components/DashboardView';
 import { WorkflowSection } from './components/WorkflowSection';
 import { TechnologySection } from './components/TechnologySection';
 import { Footer } from './components/Footer';
+import { N8nChatWidget } from './components/N8nChatWidget';
 
 const LOCAL_STORAGE_KEY = 'findback_ai_reports_v1';
 
@@ -412,6 +413,9 @@ export default function App() {
           window.scrollTo({ top: 0, behavior: 'smooth' });
         }}
       />
+
+      {/* Floating n8n AI Assistant Widget */}
+      <N8nChatWidget />
 
     </div>
   );
